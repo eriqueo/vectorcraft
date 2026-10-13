@@ -1,0 +1,60 @@
+# HWC fork: an unsigned Windows x64 installer of hwc/main for Julia's computer.
+# The Windows job of release.yml, cut down: x64 only, no `release` environment and no signing
+# secrets (package.ps1 skips signing with a warning), no release drafted. The MSI and portable
+# zip are uploaded as the run's artifact.
+name: HWC Windows build
+
+on:
+  push:
+    branches: [hwc/main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hwc-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  VECTORCRAFT_BUILD_SHA: ${{ github.sha }}
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The fonts release builds embed (crates/text/build.rs); same pin as release.yml.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-fonts
+          ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
+          path: craft-fonts
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: hwc-windows-x64
+      - name: Build date
+        shell: bash
+        run: echo "VECTORCRAFT_BUILD_DATE=$(date -u +%Y-%m-%d)" >>"$GITHUB_ENV"
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+      - name: Build and package (unsigned)
+        shell: pwsh
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+        run: ./packaging/windows/package.ps1 -Arch x64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vectorcraft-hwc-windows-x64
+          path: dist/release/*
+          if-no-files-found: error
